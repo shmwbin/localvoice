@@ -141,13 +141,15 @@
             audioPlayer.volume = e.target.value;
         });
 
-        // Helper to generate a dummy stream to initiate the call
+       // Helper to generate a dummy stream to initiate the call
         function getSilence() {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
             const ctx = new AudioContext();
             const oscillator = ctx.createOscillator();
             const dst = oscillator.connect(ctx.createMediaStreamDestination());
             oscillator.start();
-            return Object.assign(dst.stream.getAudioTracks()[0], {enabled: false});
+            dst.stream.getAudioTracks()[0].enabled = false;
+            return dst.stream; // এখানে শুধুমাত্র ট্র্যাক নয়, পুরো স্ট্রিমটি রিটার্ন করা হলো
         }
     </script>
 </body>
