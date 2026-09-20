@@ -17,7 +17,7 @@
 <body>
 
     <div class="box">
-        <h2>🎙️ লাইভ সম্প্রচার কন্ট্রোল</h2>
+        <h2>🎙️ লাইভ রেডিও সম্প্রচার</h2>
         <button id="startBtn">🔴 লাইভ শুরু করুন</button>
         <button id="stopBtn">⏹️ লাইভ বন্ধ করুন</button>
         <p id="status">স্ট্যাটাস: অফলাইন</p>
@@ -42,6 +42,8 @@
 
         let peer;
         let localStream;
+        let micStreamObj;
+        let displayStreamObj;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -49,14 +51,31 @@
 
         startBtn.addEventListener('click', async () => {
             try {
-                // System audio capture using getDisplayMedia
-                const displayStream = await navigator.mediaDevices.getDisplayMedia({
+                // ১. প্রথমে মাইক্রোফোনের অডিও নেওয়া হবে
+                micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // ২. এরপর পিসির সাউন্ড (ট্যাব/স্ক্রিন) নেওয়ার জন্য পপ-আপ আসবে
+                displayStreamObj = await navigator.mediaDevices.getDisplayMedia({
                     video: true, 
                     audio: true
                 });
                 
-                // Extract only the audio track from the display stream
-                localStream = new MediaStream([displayStream.getAudioTracks()[0]]);
+                // ৩. মাইক্রোফোন এবং পিসির সাউন্ড একসাথে মিক্স করা (AudioContext)
+                const audioCtx = new AudioContext();
+                const dest = audioCtx.createMediaStreamDestination();
+                
+                if (micStreamObj.getAudioTracks().length > 0) {
+                    const micSource = audioCtx.createMediaStreamSource(micStreamObj);
+                    micSource.connect(dest);
+                }
+                
+                if (displayStreamObj.getAudioTracks().length > 0) {
+                    const sysSource = audioCtx.createMediaStreamSource(displayStreamObj);
+                    sysSource.connect(dest);
+                }
+                
+                // মিক্স করা অডিওটি localStream-এ রাখা হলো
+                localStream = dest.stream;
                 
                 peer = new Peer(); 
                 
@@ -64,7 +83,7 @@
                     set(statusRef, { isLive: true, broadcasterId: id });
                     onDisconnect(statusRef).set({ isLive: false, broadcasterId: null });
 
-                    statusText.innerText = "স্ট্যাটাস: লাইভ চলছে...";
+                    statusText.innerText = "স্ট্যাটাস: লাইভ চলছে (মাইক + পিসি সাউন্ড)...";
                     statusText.style.color = "green";
                     startBtn.style.display = "none";
                     stopBtn.style.display = "inline-block";
@@ -80,12 +99,13 @@
         });
 
         stopBtn.addEventListener('click', () => {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-            if (peer) {
-                peer.destroy();
-            }
+            // সব অডিও স্ট্রিম বন্ধ করা
+            if (micStreamObj) micStreamObj.getTracks().forEach(t => t.stop());
+            if (displayStreamObj) displayStreamObj.getTracks().forEach(t => t.stop());
+            if (localStream) localStream.getTracks().forEach(t => t.stop());
+            
+            if (peer) peer.destroy();
+            
             set(statusRef, { isLive: false, broadcasterId: null });
             
             statusText.innerText = "স্ট্যাটাস: বন্ধ আছে";
