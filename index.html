@@ -44,14 +44,13 @@
         </div>
     </article>
     
-    <!-- Hidden audio element to play the stream -->
-    <audio id="audioPlayer"></audio>
+    <!-- Updated audio element for Mobile Support -->
+    <audio id="audioPlayer" autoplay playsinline style="display:none;"></audio>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
-        // Your Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyChsasjfB-0Yx2r4u2hSx0X2ZPHOYs6TKY",
             authDomain: "localvoice-a3845.firebaseapp.com",
@@ -69,6 +68,7 @@
         let currentBroadcasterId = null;
         let peer;
         let activeCall;
+        let audioCtx; // Global AudioContext
 
         const liveBadge = document.getElementById('liveBadge');
         const statusText = document.getElementById('statusText');
@@ -77,7 +77,6 @@
         const audioPlayer = document.getElementById('audioPlayer');
         const volSlider = document.getElementById('volSlider');
 
-        // Listen for Realtime Database changes
         onValue(statusRef, (snapshot) => {
             const data = snapshot.val();
             if (data && data.isLive) {
@@ -100,24 +99,38 @@
             }
         });
 
-        playBtn.addEventListener('click', () => {
+        playBtn.addEventListener('click', async () => {
             if (audioPlayer.srcObject) {
                 stopAudio();
             } else if (isLiveNow && currentBroadcasterId) {
+                
+                // Unlock audio for mobile immediately on click
+                try {
+                    audioPlayer.play().catch(e => {});
+                } catch(err) {}
+
                 startListening();
             }
         });
 
         function startListening() {
-            btnIcon.innerText = "⏳"; // Loading
+            btnIcon.innerText = "⏳";
             peer = new Peer();
             
             peer.on('open', () => {
-                activeCall = peer.call(currentBroadcasterId, getSilence()); // Dummy stream to initiate
+                activeCall = peer.call(currentBroadcasterId, getSilence());
                 activeCall.on('stream', (remoteStream) => {
                     audioPlayer.srcObject = remoteStream;
-                    audioPlayer.play();
-                    btnIcon.innerText = "Ⅱ"; // Pause icon
+                    
+                    // Force play again when stream arrives
+                    const playPromise = audioPlayer.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            console.log("Auto-play was prevented by mobile browser.");
+                        });
+                    }
+                    
+                    btnIcon.innerText = "Ⅱ";
                     statusText.innerText = "শুনছেন...";
                 });
             });
@@ -133,7 +146,7 @@
             if (peer) {
                 peer.destroy();
             }
-            btnIcon.innerText = "▶"; // Play icon
+            btnIcon.innerText = "▶";
             if(isLiveNow) statusText.innerText = "সম্প্রচার চলছে! শুনতে প্লে করুন";
         }
 
@@ -141,15 +154,19 @@
             audioPlayer.volume = e.target.value;
         });
 
-       // Helper to generate a dummy stream to initiate the call
         function getSilence() {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const ctx = new AudioContext();
-            const oscillator = ctx.createOscillator();
-            const dst = oscillator.connect(ctx.createMediaStreamDestination());
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const oscillator = audioCtx.createOscillator();
+            const dst = audioCtx.createMediaStreamDestination();
             oscillator.start();
             dst.stream.getAudioTracks()[0].enabled = false;
-            return dst.stream; // এখানে শুধুমাত্র ট্র্যাক নয়, পুরো স্ট্রিমটি রিটার্ন করা হলো
+            return dst.stream;
         }
     </script>
 </body>
