@@ -3,28 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHM LocalVoice - Broadcaster</title>
+    <title>SHM LocalVoice - Admin</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; background: #f4f4f9; }
-        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; }
-        button { padding: 15px 30px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; color: white; margin: 10px; }
-        #startBtn { background-color: #28a745; }
+        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: inline-block; max-width: 400px; width: 100%; }
+        input { width: 90%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
+        button { padding: 12px 25px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; color: white; margin: 10px; width: 100%; }
+        #loginBtn { background-color: #007bff; }
+        #startBtn { background-color: #28a745; display: none; }
         #stopBtn { background-color: #dc3545; display: none; }
         #status { margin-top: 20px; font-weight: bold; color: #555; }
+        #broadcastPanel { display: none; }
     </style>
 </head>
 <body>
 
     <div class="box">
-        <h2>🎙️ লাইভ রেডিও সম্প্রচার</h2>
-        <button id="startBtn">🔴 লাইভ শুরু করুন</button>
-        <button id="stopBtn">⏹️ লাইভ বন্ধ করুন</button>
-        <p id="status">স্ট্যাটাস: অফলাইন</p>
+        <h2>🎙️ অ্যাডমিন লগইন</h2>
+        
+        <!-- Login Form -->
+        <div id="loginPanel">
+            <input type="email" id="emailInput" placeholder="ইমেইল দিন" required>
+            <input type="password" id="passInput" placeholder="পাসওয়ার্ড দিন" required>
+            <button id="loginBtn">লগইন করুন</button>
+            <p id="loginError" style="color:red; display:none;">লগইন ব্যর্থ হয়েছে!</p>
+        </div>
+
+        <!-- Broadcast Panel (Hidden initially) -->
+        <div id="broadcastPanel">
+            <button id="startBtn">🔴 লাইভ শুরু করুন</button>
+            <button id="stopBtn">⏹️ লাইভ বন্ধ করুন</button>
+            <p id="status">স্ট্যাটাস: অফলাইন</p>
+        </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
         import { getDatabase, ref, set, onDisconnect } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
         const firebaseConfig = {
@@ -37,30 +53,53 @@
         };
 
         const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
         const db = getDatabase(app);
         const statusRef = ref(db, 'radio_status');
 
-        let peer;
-        let localStream;
-        let micStreamObj;
-        let displayStreamObj;
+        let peer, localStream, micStreamObj, displayStreamObj;
 
+        const loginPanel = document.getElementById('loginPanel');
+        const broadcastPanel = document.getElementById('broadcastPanel');
+        const emailInput = document.getElementById('emailInput');
+        const passInput = document.getElementById('passInput');
+        const loginBtn = document.getElementById('loginBtn');
+        const loginError = document.getElementById('loginError');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const statusText = document.getElementById('status');
+        
+        // Handle Login
+        loginBtn.addEventListener('click', () => {
+            const email = emailInput.value;
+            const pass = passInput.value;
+            signInWithEmailAndPassword(auth, email, pass)
+                .catch((error) => {
+                    loginError.style.display = "block";
+                    loginError.innerText = "ভুল ইমেইল বা পাসওয়ার্ড!";
+                });
+        });
 
+        // Check if User is Logged In
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // User is signed in, show broadcast panel
+                loginPanel.style.display = "none";
+                broadcastPanel.style.display = "block";
+                startBtn.style.display = "inline-block";
+                document.querySelector('h2').innerText = "🎙️ লাইভ রেডিও সম্প্রচার";
+            } else {
+                loginPanel.style.display = "block";
+                broadcastPanel.style.display = "none";
+            }
+        });
+
+        // Broadcast Logic (Same as before)
         startBtn.addEventListener('click', async () => {
             try {
-                // ১. প্রথমে মাইক্রোফোনের অডিও নেওয়া হবে
                 micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
+                displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                 
-                // ২. এরপর পিসির সাউন্ড (ট্যাব/স্ক্রিন) নেওয়ার জন্য পপ-আপ আসবে
-                displayStreamObj = await navigator.mediaDevices.getDisplayMedia({
-                    video: true, 
-                    audio: true
-                });
-                
-                // ৩. মাইক্রোফোন এবং পিসির সাউন্ড একসাথে মিক্স করা (AudioContext)
                 const audioCtx = new AudioContext();
                 const dest = audioCtx.createMediaStreamDestination();
                 
@@ -74,40 +113,29 @@
                     sysSource.connect(dest);
                 }
                 
-                // মিক্স করা অডিওটি localStream-এ রাখা হলো
                 localStream = dest.stream;
-                
                 peer = new Peer(); 
                 
                 peer.on('open', (id) => {
                     set(statusRef, { isLive: true, broadcasterId: id });
                     onDisconnect(statusRef).set({ isLive: false, broadcasterId: null });
-
-                    statusText.innerText = "স্ট্যাটাস: লাইভ চলছে (মাইক + পিসি সাউন্ড)...";
+                    statusText.innerText = "স্ট্যাটাস: লাইভ চলছে...";
                     statusText.style.color = "green";
                     startBtn.style.display = "none";
                     stopBtn.style.display = "inline-block";
                 });
-
-                peer.on('call', (call) => {
-                    call.answer(localStream);
-                });
-
+                peer.on('call', (call) => call.answer(localStream));
             } catch (err) {
                 alert("অডিও ক্যাপচার করতে সমস্যা হচ্ছে: " + err.message);
             }
         });
 
         stopBtn.addEventListener('click', () => {
-            // সব অডিও স্ট্রিম বন্ধ করা
             if (micStreamObj) micStreamObj.getTracks().forEach(t => t.stop());
             if (displayStreamObj) displayStreamObj.getTracks().forEach(t => t.stop());
             if (localStream) localStream.getTracks().forEach(t => t.stop());
-            
             if (peer) peer.destroy();
-            
             set(statusRef, { isLive: false, broadcasterId: null });
-            
             statusText.innerText = "স্ট্যাটাস: বন্ধ আছে";
             statusText.style.color = "red";
             startBtn.style.display = "inline-block";
