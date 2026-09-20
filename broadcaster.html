@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SHM LocalVoice - Broadcaster</title>
-    <!-- PeerJS for Audio Streaming -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; background: #f4f4f9; }
@@ -24,12 +23,10 @@
         <p id="status">স্ট্যাটাস: অফলাইন</p>
     </div>
 
-    <!-- Firebase & Logic (ES Modules) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getDatabase, ref, set, onDisconnect } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
-        // Your Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyChsasjfB-0Yx2r4u2hSx0X2ZPHOYs6TKY",
             authDomain: "localvoice-a3845.firebaseapp.com",
@@ -52,16 +49,19 @@
 
         startBtn.addEventListener('click', async () => {
             try {
-                // Get Microphone Access
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // System audio capture using getDisplayMedia
+                const displayStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true, 
+                    audio: true
+                });
                 
-                peer = new Peer(); // Auto generate ID
+                // Extract only the audio track from the display stream
+                localStream = new MediaStream([displayStream.getAudioTracks()[0]]);
+                
+                peer = new Peer(); 
                 
                 peer.on('open', (id) => {
-                    // Update Firebase that we are live
                     set(statusRef, { isLive: true, broadcasterId: id });
-                    
-                    // If browser closes, auto set to offline
                     onDisconnect(statusRef).set({ isLive: false, broadcasterId: null });
 
                     statusText.innerText = "স্ট্যাটাস: লাইভ চলছে...";
@@ -70,13 +70,12 @@
                     stopBtn.style.display = "inline-block";
                 });
 
-                // Answer incoming listener calls
                 peer.on('call', (call) => {
                     call.answer(localStream);
                 });
 
             } catch (err) {
-                alert("মাইক্রোফোন অ্যাক্সেস করতে সমস্যা হচ্ছে: " + err.message);
+                alert("অডিও ক্যাপচার করতে সমস্যা হচ্ছে: " + err.message);
             }
         });
 
@@ -87,7 +86,6 @@
             if (peer) {
                 peer.destroy();
             }
-            // Update Firebase to offline
             set(statusRef, { isLive: false, broadcasterId: null });
             
             statusText.innerText = "স্ট্যাটাস: বন্ধ আছে";
