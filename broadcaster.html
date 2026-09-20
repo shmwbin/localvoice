@@ -83,7 +83,6 @@
         // Check if User is Logged In
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // User is signed in, show broadcast panel
                 loginPanel.style.display = "none";
                 broadcastPanel.style.display = "block";
                 startBtn.style.display = "inline-block";
@@ -94,12 +93,16 @@
             }
         });
 
-        // Broadcast Logic (Same as before)
+        // Broadcast Logic
         startBtn.addEventListener('click', async () => {
             try {
+                // ১. মাইক্রোফোনের অডিও ক্যাপচার
                 micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // ২. স্ক্রিন শেয়ার (Entire Screen) এর মাধ্যমে পিসির অডিও ক্যাপচার
                 displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                 
+                // ৩. অডিও মিক্সিং (AudioContext)
                 const audioCtx = new AudioContext();
                 const dest = audioCtx.createMediaStreamDestination();
                 
@@ -124,7 +127,23 @@
                     startBtn.style.display = "none";
                     stopBtn.style.display = "inline-block";
                 });
+                
+                // নতুন শ্রোতাদের কল রিসিভ করা
                 peer.on('call', (call) => call.answer(localStream));
+
+                // সার্ভার ডিসকানেক্ট হলে অটোমেটিক রিকানেক্ট করা
+                peer.on('disconnected', () => {
+                    if (!peer.destroyed) {
+                        console.log("সার্ভার থেকে বিচ্ছিন্ন হয়েছে, আবার কানেক্ট করা হচ্ছে...");
+                        peer.reconnect();
+                    }
+                });
+
+                // এরর লগিং
+                peer.on('error', (err) => {
+                    console.log("PeerJS Error: ", err);
+                });
+
             } catch (err) {
                 alert("অডিও ক্যাপচার করতে সমস্যা হচ্ছে: " + err.message);
             }
