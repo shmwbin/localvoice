@@ -1,1 +1,154 @@
-fasfd
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHM LocalVoice - Live</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #222; margin: 0; }
+        .radio-card { background: #333; color: white; padding: 20px; border-radius: 15px; width: 300px; box-shadow: 0 10px 20px rgba(0,0,0,0.5); text-align: center; position: relative; }
+        .live-badge { position: absolute; top: 15px; right: 15px; background: red; color: white; padding: 3px 8px; border-radius: 5px; font-size: 12px; font-weight: bold; display: none; animation: blink 2s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .station-head { margin-bottom: 20px; }
+        .station-icon { font-size: 40px; }
+        .station-info h2 { margin: 10px 0 5px 0; font-size: 22px; }
+        .station-info p { margin: 0; color: #aaa; font-size: 14px; }
+        .play-btn { background: #1db954; color: white; border: none; border-radius: 50%; width: 50px; height: 50px; font-size: 20px; cursor: pointer; display: flex; justify-content: center; align-items: center; margin: 0 auto 15px auto; }
+        .play-btn:disabled { background: #555; cursor: not-allowed; }
+        .status-text { display: block; margin-bottom: 15px; font-size: 14px; font-weight: bold; color: #ff4d4d; }
+        .volume { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .vol-slider { width: 100px; }
+    </style>
+</head>
+<body>
+
+    <article class="radio-card" data-name="Local Voice">
+        <div class="live-badge" id="liveBadge">LIVE</div>
+        <div class="station-head">
+            <div class="station-icon">🎙️</div>
+            <div class="station-info">
+                <h2>Local Voice</h2>
+                <p>Basirhat, West Bengal</p>
+            </div>
+        </div>
+        <div class="player-row">
+            <button class="play-btn" id="playBtn" disabled aria-label="Play">
+                <span id="btnIcon">▶</span>
+            </button>
+            <div class="status-wrap"><span class="status-text" id="statusText">বন্ধ আছে</span></div>
+            <label class="volume">
+                <span>🔊</span>
+                <input type="range" class="vol-slider" id="volSlider" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+            </label>
+        </div>
+    </article>
+    
+    <!-- Hidden audio element to play the stream -->
+    <audio id="audioPlayer"></audio>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+
+        // Your Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyChsasjfB-0Yx2r4u2hSx0X2ZPHOYs6TKY",
+            authDomain: "localvoice-a3845.firebaseapp.com",
+            projectId: "localvoice-a3845",
+            storageBucket: "localvoice-a3845.firebasestorage.app",
+            messagingSenderId: "916898707708",
+            appId: "1:916898707708:web:7b7ad98a86f4a07a02ff79"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const statusRef = ref(db, 'radio_status');
+
+        let isLiveNow = false;
+        let currentBroadcasterId = null;
+        let peer;
+        let activeCall;
+
+        const liveBadge = document.getElementById('liveBadge');
+        const statusText = document.getElementById('statusText');
+        const playBtn = document.getElementById('playBtn');
+        const btnIcon = document.getElementById('btnIcon');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const volSlider = document.getElementById('volSlider');
+
+        // Listen for Realtime Database changes
+        onValue(statusRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.isLive) {
+                isLiveNow = true;
+                currentBroadcasterId = data.broadcasterId;
+                
+                liveBadge.style.display = "block";
+                statusText.innerText = "সম্প্রচার চলছে! শুনতে প্লে করুন";
+                statusText.style.color = "#1db954";
+                playBtn.disabled = false;
+            } else {
+                isLiveNow = false;
+                currentBroadcasterId = null;
+                
+                liveBadge.style.display = "none";
+                statusText.innerText = "বন্ধ আছে";
+                statusText.style.color = "#ff4d4d";
+                playBtn.disabled = true;
+                stopAudio();
+            }
+        });
+
+        playBtn.addEventListener('click', () => {
+            if (audioPlayer.srcObject) {
+                stopAudio();
+            } else if (isLiveNow && currentBroadcasterId) {
+                startListening();
+            }
+        });
+
+        function startListening() {
+            btnIcon.innerText = "⏳"; // Loading
+            peer = new Peer();
+            
+            peer.on('open', () => {
+                activeCall = peer.call(currentBroadcasterId, getSilence()); // Dummy stream to initiate
+                activeCall.on('stream', (remoteStream) => {
+                    audioPlayer.srcObject = remoteStream;
+                    audioPlayer.play();
+                    btnIcon.innerText = "Ⅱ"; // Pause icon
+                    statusText.innerText = "শুনছেন...";
+                });
+            });
+        }
+
+        function stopAudio() {
+            if (audioPlayer.srcObject) {
+                audioPlayer.srcObject = null;
+            }
+            if (activeCall) {
+                activeCall.close();
+            }
+            if (peer) {
+                peer.destroy();
+            }
+            btnIcon.innerText = "▶"; // Play icon
+            if(isLiveNow) statusText.innerText = "সম্প্রচার চলছে! শুনতে প্লে করুন";
+        }
+
+        volSlider.addEventListener('input', (e) => {
+            audioPlayer.volume = e.target.value;
+        });
+
+        // Helper to generate a dummy stream to initiate the call
+        function getSilence() {
+            const ctx = new AudioContext();
+            const oscillator = ctx.createOscillator();
+            const dst = oscillator.connect(ctx.createMediaStreamDestination());
+            oscillator.start();
+            return Object.assign(dst.stream.getAudioTracks()[0], {enabled: false});
+        }
+    </script>
+</body>
+</html>
