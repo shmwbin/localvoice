@@ -60,8 +60,8 @@
         const statusRef = ref(db, 'radio_status');
 
         let peer, localStream, micStreamObj, displayStreamObj;
-        let wakeLock = null; // 🛠️ Wake Lock Variable
-        let keepAliveInterval = null; // 🛠️ Anti-Sleep Interval
+        let wakeLock = null; 
+        let keepAliveInterval = null; 
 
         const loginPanel = document.getElementById('loginPanel');
         const broadcastPanel = document.getElementById('broadcastPanel');
@@ -98,7 +98,6 @@
             }
         });
 
-        // 🛠️ Wake Lock Function (ব্রাউজারকে ঘুমোতে দেবে না)
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
@@ -111,43 +110,69 @@
                     });
                 }
             } catch (err) {
-                wakeLockStatus.innerText = "⚠️ অ্যান্টি-স্লিপ মোড সাপোর্ট করছে না। দয়া করে স্ক্রিন অন রাখুন।";
+                wakeLockStatus.innerText = "⚠️ অ্যান্টি-স্লিপ মোড সাপোর্ট করছে না।";
                 wakeLockStatus.style.color = "#dc3545";
             }
         }
 
-        // 🛠️ Re-acquire Wake Lock if tab becomes visible again
         document.addEventListener('visibilitychange', async () => {
             if (wakeLock !== null && document.visibilityState === 'visible') {
                 await requestWakeLock();
             }
         });
 
-        // Broadcast Logic
+        // Broadcast Logic with Automatic Fallback to Screen Sound
         startBtn.addEventListener('click', async () => {
             try {
-                // ১. মাইক্রোফোনের অডিও ক্যাপচার
-                micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // ২. সিস্টেম অডিও ক্যাপচার (যদি পিসি হয়)
-                if (navigator.mediaDevices.getDisplayMedia) {
-                    try {
-                        displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                    } catch (e) {
-                        console.log("স্ক্রিন শেয়ার বাতিল করা হয়েছে বা সাপোর্ট করছে না।");
+                micStreamObj = null;
+                displayStreamObj = null;
+
+                // ১. প্রথমে মাইক্রোফোন পাওয়ার চেষ্টা করা (না থাকলে এরর ক্যাচ করবে)
+                try {
+                    micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
+                } catch (micErr) {
+                    console.log("মাইক্রোফোন পাওয়া যায়নি, স্ক্রিন সাউন্ডে সুইচ করা হচ্ছে...");
+                }
+
+                // ২. যদি মাইক্রোফোন না পাওয়া যায়, তবে সিস্টেম/স্ক্রিন সাউন্ড নেওয়ার চেষ্টা করা
+                const hasMic = micStreamObj && micStreamObj.getAudioTracks().length > 0;
+
+                if (!hasMic) {
+                    if (navigator.mediaDevices.getDisplayMedia) {
+                        try {
+                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                        } catch (displayErr) {
+                            console.log("স্ক্রিন শেয়ার বাতিল করা হয়েছে।");
+                        }
+                    }
+                } else {
+                    // মাইক্রোফোন পেলে যদি পিসি/ট্যাব সাউন্ডও একসাথ নিতে চায়
+                    if (navigator.mediaDevices.getDisplayMedia) {
+                        try {
+                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                        } catch (e) {}
                     }
                 }
-                
+
+                const hasMicAudio = micStreamObj && micStreamObj.getAudioTracks().length > 0;
+                const hasSysAudio = displayStreamObj && displayStreamObj.getAudioTracks().length > 0;
+
+                // যদি কোনোটিই না থাকে
+                if (!hasMicAudio && !hasSysAudio) {
+                    alert("⚠️ কোনো মাইক্রোফোন বা স্ক্রিন অডিও পাওয়া যায়নি! স্ক্রিন শেয়ার করার সময় অবশ্যই 'Share audio' টিক মার্ক দিন।");
+                    return;
+                }
+
                 // ৩. অডিও মিক্সিং
                 const audioCtx = new AudioContext();
                 const dest = audioCtx.createMediaStreamDestination();
                 
-                if (micStreamObj && micStreamObj.getAudioTracks().length > 0) {
+                if (hasMicAudio) {
                     const micSource = audioCtx.createMediaStreamSource(micStreamObj);
                     micSource.connect(dest);
                 }
                 
-                if (displayStreamObj && displayStreamObj.getAudioTracks().length > 0) {
+                if (hasSysAudio) {
                     const sysSource = audioCtx.createMediaStreamSource(displayStreamObj);
                     sysSource.connect(dest);
                 }
@@ -158,15 +183,21 @@
                 peer.on('open', (id) => {
                     set(statusRef, { isLive: true, broadcasterId: id });
                     onDisconnect(statusRef).set({ isLive: false, broadcasterId: null });
-                    statusText.innerText = displayStreamObj ? "স্ট্যাটাস: লাইভ চলছে (মাইক + পিসি সাউন্ড)..." : "স্ট্যাটাস: লাইভ চলছে (শুধুমাত্র মাইক)...";
+                    
+                    if (hasMicAudio && hasSysAudio) {
+                        statusText.innerText = "স্ট্যাটাস: লাইভ চলছে (মাইক + স্ক্রিন সাউন্ড)...";
+                    } else if (hasSysAudio) {
+                        statusText.innerText = "স্ট্যাটাস: লাইভ চলছে (শুধুমাত্র স্ক্রিন সাউন্ড)...";
+                    } else {
+                        statusText.innerText = "স্ট্যাটাস: লাইভ চলছে (শুধুমাত্র মাইক)...";
+                    }
+
                     statusText.style.color = "green";
                     startBtn.style.display = "none";
                     stopBtn.style.display = "inline-block";
                     
-                    // 🛠️ লাইভ শুরু হলেই অ্যান্টি-স্লিপ চালু হবে
                     requestWakeLock();
                     
-                    // 🛠️ ব্রাউজার থ্রেড অ্যাক্টিভ রাখতে ফেক ইন্টারভ্যাল (Ping)
                     keepAliveInterval = setInterval(() => {
                         console.log("Broadcasting...");
                     }, 5000);
@@ -176,7 +207,6 @@
 
                 peer.on('disconnected', () => {
                     if (!peer.destroyed) {
-                        console.log("সার্ভার থেকে বিচ্ছিন্ন হয়েছে, আবার কানেক্ট করা হচ্ছে...");
                         peer.reconnect();
                     }
                 });
@@ -186,7 +216,7 @@
                 });
 
             } catch (err) {
-                alert("মাইক্রোফোন ক্যাপচার করতে সমস্যা হচ্ছে: " + err.message);
+                alert("সম্প্রচার শুরু করতে সমস্যা হচ্ছে: " + err.message);
             }
         });
 
@@ -202,7 +232,6 @@
             startBtn.style.display = "inline-block";
             stopBtn.style.display = "none";
             
-            // 🛠️ লাইভ বন্ধ হলে অ্যান্টি-স্লিপ রিলিজ করা
             if (wakeLock !== null) {
                 wakeLock.release().then(() => wakeLock = null);
                 wakeLockStatus.innerText = "";
