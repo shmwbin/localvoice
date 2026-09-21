@@ -127,29 +127,49 @@
                 micStreamObj = null;
                 displayStreamObj = null;
 
-                // ১. প্রথমে মাইক্রোফোন পাওয়ার চেষ্টা করা (না থাকলে এরর ক্যাচ করবে)
+                // ১. প্রথমে মাইক্রোফোন পাওয়ার চেষ্টা করা (Audio Filter Disable করে)
                 try {
-                    micStreamObj = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    micStreamObj = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: false,
+                            autoGainControl: false,
+                            noiseSuppression: false,
+                            channelCount: 2
+                        } 
+                    });
                 } catch (micErr) {
-                    console.log("মাইক্রোফোন পাওয়া যায়নি, স্ক্রিন সাউন্ডে সুইচ করা হচ্ছে...");
+                    console.log("মাইক্রোফোন পাওয়া যায়নি, স্ক্রিন সাউন্ডে সুইচ করা হচ্ছে...");
                 }
 
-                // ২. যদি মাইক্রোফোন না পাওয়া যায়, তবে সিস্টেম/স্ক্রিন সাউন্ড নেওয়ার চেষ্টা করা
+                // ২. স্ক্রিন সাউন্ড নেওয়ার চেষ্টা করা (Audio Filter Disable করে)
                 const hasMic = micStreamObj && micStreamObj.getAudioTracks().length > 0;
 
                 if (!hasMic) {
                     if (navigator.mediaDevices.getDisplayMedia) {
                         try {
-                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ 
+                                video: true, 
+                                audio: {
+                                    echoCancellation: false,
+                                    autoGainControl: false,
+                                    noiseSuppression: false
+                                } 
+                            });
                         } catch (displayErr) {
                             console.log("স্ক্রিন শেয়ার বাতিল করা হয়েছে।");
                         }
                     }
                 } else {
-                    // মাইক্রোফোন পেলে যদি পিসি/ট্যাব সাউন্ডও একসাথ নিতে চায়
                     if (navigator.mediaDevices.getDisplayMedia) {
                         try {
-                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                            displayStreamObj = await navigator.mediaDevices.getDisplayMedia({ 
+                                video: true, 
+                                audio: {
+                                    echoCancellation: false,
+                                    autoGainControl: false,
+                                    noiseSuppression: false
+                                } 
+                            });
                         } catch (e) {}
                     }
                 }
@@ -159,7 +179,7 @@
 
                 // যদি কোনোটিই না থাকে
                 if (!hasMicAudio && !hasSysAudio) {
-                    alert("⚠️ কোনো মাইক্রোফোন বা স্ক্রিন অডিও পাওয়া যায়নি! স্ক্রিন শেয়ার করার সময় অবশ্যই 'Share audio' টিক মার্ক দিন।");
+                    alert("⚠️ কোনো মাইক্রোফোন বা স্ক্রিন অডিও পাওয়া যায়নি! স্ক্রিন শেয়ার করার সময় অবশ্যই 'Share audio' টিক মার্ক দিন।");
                     return;
                 }
 
