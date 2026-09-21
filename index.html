@@ -154,7 +154,7 @@ h1{margin:0;font-size:clamp(1.55rem,5vw,2.25rem);line-height:1.2;letter-spacing:
 <!-- bangladesh section -->
 <div class="section-title">🇧🇩 বাংলাদেশ</div>
   
- <!-- 6. dhaka -->
+   <!-- 6. dhaka -->
 <article class="radio-card" data-type="garden" data-id="k0P756nS" data-name="Bangladesh Betar Dhaka">
 <div class="live-badge">LIVE</div>
 <div class="station-head"><div class="station-icon">📻</div><div class="station-info"><h2>Bangladesh Betar</h2><p>Dhaka, Bangladesh</p></div></div>
@@ -236,7 +236,6 @@ function stopActive(){if(active.hls){try{active.hls.destroy()}catch(e){}active.h
 async function loadHls(){if(window.Hls)return window.Hls;if(hlsLoader)return hlsLoader;hlsLoader=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js';s.onload=()=>resolve(window.Hls);s.onerror=()=>reject(new Error('HLS loader failed'));document.head.appendChild(s)});return hlsLoader}
 function makeAudio(card){const a=new Audio();a.preload='none';a.volume=Number(card.querySelector('.vol-slider')?.value || 1);return a}
 async function playDirect(card,url){
-    // WebRTC প্লেয়ার বন্ধ করুন যদি অন্য রেডিও প্লে হয়
     if (window.stopLocalVoiceAudio) window.stopLocalVoiceAudio();
     
     const audio=makeAudio(card),btn=card.querySelector('.play-btn'),status=card.querySelector('.status-text');active={audio,card,button:btn,hls:null};btn.classList.add('loading');status.textContent='Stream load হচ্ছে...';
@@ -302,7 +301,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
 </script>
 
 <!-- ============================================== -->
-<!-- Firebase & WebRTC Logic for Local Voice Card   -->
+<!-- Firebase & WebRTC Logic with Background Fix    -->
 <!-- ============================================== -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -327,6 +326,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
     let activeCall = null;
     let audioCtx; 
     let connMonitor = null; 
+    let backgroundWatchdog = null; // ব্যাকগ্রাউন্ড অডিও টিকিয়ে রাখার ওয়াচডগ
 
     const liveBadge = document.getElementById('localLiveBadge');
     const statusText = document.getElementById('localStatusText');
@@ -336,7 +336,6 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
     const volSlider = document.getElementById('localVolSlider');
     const card = document.getElementById('localVoiceCard');
     
-    // Global function to stop local voice if standard radio starts playing
     window.stopLocalVoiceAudio = stopAudio;
 
     onValue(statusRef, (snapshot) => {
@@ -376,11 +375,10 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
         if (audioPlayer.srcObject) {
             stopAudio();
         } else if (isLiveNow && currentBroadcasterId) {
-            // Stop other standard radios before playing Local Voice
             if (typeof stopActive === 'function') stopActive();
             
             try {
-                audioPlayer.play().catch(e => {});
+                await audioPlayer.play();
             } catch(err) {}
 
             startListening();
@@ -400,20 +398,19 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
                 audioPlayer.srcObject = remoteStream;
                 card.classList.add('playing');
                 
-                const playPromise = audioPlayer.play();
-                if (playPromise !== undefined) {
-                    playPromise.then(_ => {
-                        setupMediaSession(); // 🛠️ Media Session API Setup
-                    }).catch(error => {
-                        console.log("Auto-play prevented");
-                    });
-                }
+                audioPlayer.play().then(() => {
+                    setupMediaSession();
+                }).catch(error => {
+                    console.log("Auto-play prevented:", error);
+                });
                 
                 btnIcon.innerText = "Ⅱ";
                 statusText.innerText = "লাইভ শুনছেন...";
+                
+                // ব্যাকগ্রাউন্ড ওয়াচডগ চালু করা হলো
+                startBackgroundWatchdog();
             });
 
-            // 🛠️ Advanced Data Monitor (WebRTC Stats API)
             let lastBytesReceived = 0;
             let silentCount = 0;
 
@@ -440,7 +437,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
                             if (currentBytes === lastBytesReceived) {
                                 silentCount++;
                                 if (silentCount >= 4) {
-                                    triggerReconnect(); // 12 seconds of complete silence triggers reconnect
+                                    triggerReconnect(); 
                                 }
                             } else {
                                 silentCount = 0;
@@ -464,10 +461,28 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
         });
     }
 
+    // ব্যাকগ্রাউন্ড ওয়াচডগ ফাংশন: ব্যাকগ্রাউন্ডে অডিও পজ হয়ে গেলে বা AudioContext সাসপেন্ড হলে অটো রিস্টার্ট করবে
+    function startBackgroundWatchdog() {
+        if (backgroundWatchdog) clearInterval(backgroundWatchdog);
+
+        backgroundWatchdog = setInterval(() => {
+            if (card.classList.contains('playing') && isLiveNow) {
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                if (audioPlayer.paused && audioPlayer.srcObject) {
+                    audioPlayer.play().catch(e => {
+                        console.log("Watchdog play retry failed:", e);
+                    });
+                }
+            }
+        }, 4000);
+    }
+
     function triggerReconnect() {
         stopAudio();
         if (isLiveNow) {
-            statusText.innerText = "পুনরায় কানেক্ট হচ্ছে...";
+            statusText.innerText = "পুনরায় কানেক্ট হচ্ছে...";
             setTimeout(() => {
                 startListening();
             }, 1000); 
@@ -475,6 +490,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
     }
 
     function stopAudio() {
+        if (backgroundWatchdog) { clearInterval(backgroundWatchdog); backgroundWatchdog = null; }
         if (connMonitor) { clearInterval(connMonitor); connMonitor = null; }
         if (audioPlayer.srcObject) { audioPlayer.srcObject = null; }
         if (activeCall) { activeCall.close(); activeCall = null; }
@@ -494,7 +510,6 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
         }
     }
 
-    // 🛠️ Setup Media Session API (Background keep-alive for mobile OS)
     function setupMediaSession() {
         if ('mediaSession' in navigator) {
             navigator.mediaSession.metadata = new MediaMetadata({
