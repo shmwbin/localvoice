@@ -10,8 +10,8 @@
 <meta name="description" content="Bangla Live FM o Radio — Akashvani, Vividh Bharati, West Bengal, and Bangladesh radio streams.">
 <title>Bangla Live FM & Radio</title>
 
-<!-- PeerJS for Local Voice -->
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<!-- PeerJS for Local Voice (Reliable CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
 :root{--bg:#07111f;--panel:#0d1b2d;--panel2:#10233a;--line:#1e3550;--text:#f8fafc;--muted:#91a4bb;--accent:#55d6ff;--good:#20e3b2;--danger:#fb7185}
@@ -301,7 +301,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
 </script>
 
 <!-- ============================================== -->
-<!-- Firebase & WebRTC Logic with Background Fix    -->
+<!-- Firebase & WebRTC Logic Fully Fixed & Safe     -->
 <!-- ============================================== -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -326,7 +326,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
     let activeCall = null;
     let audioCtx; 
     let connMonitor = null; 
-    let backgroundWatchdog = null; // ব্যাকগ্রাউন্ড অডিও টিকিয়ে রাখার ওয়াচডগ
+    let backgroundWatchdog = null;
 
     const liveBadge = document.getElementById('localLiveBadge');
     const statusText = document.getElementById('localStatusText');
@@ -374,19 +374,23 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
     playBtn.addEventListener('click', async () => {
         if (audioPlayer.srcObject) {
             stopAudio();
-        } else if (isLiveNow && currentBroadcasterId) {
+        } else if (isLiveNow) {
+            if (!currentBroadcasterId) {
+                alert("⚠️ ব্রডকাস্টার আইডি পাওয়া যায়নি! অ্যাডমিন প্যানেল থেকে লাইভ রিফ্রেশ করুন।");
+                return;
+            }
+
             if (typeof stopActive === 'function') stopActive();
             
-            try {
-                await audioPlayer.play();
-            } catch(err) {}
+            // তাৎক্ষণিকভাবে লোডিং আইকন দেখাবে
+            btnIcon.innerText = "⏳";
+            statusText.innerText = "কানেক্ট হচ্ছে...";
 
             startListening();
         }
     });
 
     function startListening() {
-        btnIcon.innerText = "⏳";
         if (peer) { peer.destroy(); peer = null; }
         
         peer = new Peer();
@@ -407,7 +411,6 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
                 btnIcon.innerText = "Ⅱ";
                 statusText.innerText = "লাইভ শুনছেন...";
                 
-                // ব্যাকগ্রাউন্ড ওয়াচডগ চালু করা হলো
                 startBackgroundWatchdog();
             });
 
@@ -461,7 +464,6 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
         });
     }
 
-    // ব্যাকগ্রাউন্ড ওয়াচডগ ফাংশন: ব্যাকগ্রাউন্ডে অডিও পজ হয়ে গেলে বা AudioContext সাসপেন্ড হলে অটো রিস্টার্ট করবে
     function startBackgroundWatchdog() {
         if (backgroundWatchdog) clearInterval(backgroundWatchdog);
 
@@ -471,9 +473,7 @@ closeInstall.addEventListener('click', () => { installBanner.style.display = 'no
                     audioCtx.resume();
                 }
                 if (audioPlayer.paused && audioPlayer.srcObject) {
-                    audioPlayer.play().catch(e => {
-                        console.log("Watchdog play retry failed:", e);
-                    });
+                    audioPlayer.play().catch(e => {});
                 }
             }
         }, 4000);
